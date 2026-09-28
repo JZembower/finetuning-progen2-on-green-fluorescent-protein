@@ -1,4 +1,4 @@
-# GenAI Biomedicine workspace
+# Finetuning ProGen2 on Green Fluorescent Protein
 
 Independent local copy of two separate codebases used together for CMU 11781/02741 Assignment 1:
 
