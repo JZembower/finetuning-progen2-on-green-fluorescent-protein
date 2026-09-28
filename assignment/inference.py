@@ -27,16 +27,18 @@ eos_idx = alphabet.eos()
 fw = open(os.path.join(OUTPUT_RESULT_PATH, OUTPUT_FILE_NAME), 'w')
 
 model = ProGenForCausalLM.from_pretrained(os.path.join(PRETRAINED_MODEL_PATH, PRETRAINED_MODEL)).to('cuda')
-# TODO: loading model checkpoints
-raise NotImplementedError("Need to be implemented for loading trained best model checkpoints")
+model.load_state_dict(torch.load(os.path.join(OUTPUT_MODEL_PATH, 'best_checkpoint.pt')))
+model.eval()
 
 print("\nStarting design...")
 num_updates = 0
 best_valid_loss = np.inf 
 for prefix_seqs, _ in test_dataloader:
     prefix_seqs = prefix_seqs.to('cuda')
-    # TODO: get model predicitons, calling model forward_inference
-    raise NotImplementedError("Need to be implemented for model inference")
+    with torch.no_grad():
+        indexes = model.forward_inference(
+            prefix_seqs, eos_idx, MAX_SEQ_LENGTH, decoding_strategy=DECODING_STRATEGY
+        )
 
     designs = [alphabet.string(indexes[i]) for i in range(len(indexes))]
     print(designs[0])

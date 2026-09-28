@@ -15,7 +15,9 @@ LR_SCHEDULER_UPDATES = 4000
 EPOCHS = 10
 
 # you might modify based on the computing resources you used
-BATCH_SIZE = 32
+# 8 fits an 8 GB RTX 4060 (peak ~4.5 GiB). 16 peaks at 7.35 GiB and thrashes:
+# 1.99 s/step vs 0.35 s/step at 8, i.e. 16.5 h vs 5.8 h for the 10 epochs.
+BATCH_SIZE = 8
 
 PRETRAINED_MODEL = "progen2-small"
 PRETRAINED_MODEL_PATH = "pretrained_model"
@@ -27,8 +29,7 @@ valid_dataloader = get_dataloader(DATA_PATH, 'valid', BATCH_SIZE, shuffle=False)
 pad_idx = alphabet.pad()
 
 model = ProGenForCausalLM.from_pretrained(os.path.join(PRETRAINED_MODEL_PATH, PRETRAINED_MODEL)).to('cuda')
-# TODO: Define optimizer, please using Adam
-raise NotImplementedError("Need to be implemented for Adam optimizer")
+optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 decay_factor = LEARNING_RATE * LR_SCHEDULER_UPDATES ** 0.5
 
@@ -44,9 +45,8 @@ for epoch in range(EPOCHS):
         optimizer.zero_grad()
         
         # Forward pass
-        # TODO: Get model outputs based on inputs - calling model forward
-        raise NotImplementedError("Need to be implemented for calling model forward function")
-        
+        outputs = model(inputs)
+
         # Calculate loss
         loss = torch.mean(-torch.log(outputs.gather(dim=-1, index=targets.unsqueeze(-1))).squeeze(-1) * (targets!=pad_idx))
         
@@ -68,8 +68,8 @@ for epoch in range(EPOCHS):
         targets = targets.to('cuda')
 
         # Forward pass
-        # TODO: Get model outputs based on inputs - calling model forward
-        raise NotImplementedError("Need to be implemented for calling model forward function")
+        with torch.no_grad():
+            outputs = model(inputs)
 
         loss = torch.mean(-torch.log(outputs.gather(dim=-1, index=targets.unsqueeze(-1))).squeeze(-1) * (targets!=pad_idx))
         valid_losses.append(loss.item())

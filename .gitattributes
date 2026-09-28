@@ -1,0 +1,5 @@
+# AlphaFold 3 is built inside a Linux container: shell scripts and the HMMER
+# patch must keep LF endings even when core.autocrlf=true on Windows.
+alphafold3/** text=auto eol=lf
+*.sh text eol=lf
+*.patch text eol=lf

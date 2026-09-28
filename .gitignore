@@ -11,6 +11,7 @@ progen/
 assignment/pretrained_model/
 assignment/models/
 assignment/design/
+Assignment_One_Guidelines.pdf
 
 # AlphaFold 3 weights, databases, and local build artifacts
 alphafold3/**/*.bin
@@ -24,3 +25,9 @@ alphafold3/**/*.zst
 Thumbs.db
 .idea/
 .vscode/
+
+# Local AlphaFold 3 evaluation workspace (inputs, outputs, JAX cache)
+af3_work/
+*.sif
+
+lectures/
