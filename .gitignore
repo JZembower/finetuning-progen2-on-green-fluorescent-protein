@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+progen/
+
+# Assignment downloads and run outputs
+assignment/pretrained_model/
+assignment/models/
+assignment/design/
+
+# AlphaFold 3 weights, databases, and local build artifacts
+alphafold3/**/*.bin
+alphafold3/**/*.zst
+**/public_databases/
+**/af_output/
+**/af_input/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
