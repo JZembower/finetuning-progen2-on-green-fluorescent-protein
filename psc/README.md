@@ -102,7 +102,33 @@ tail -f logs/progen_*.out
 
 Submit from `$PROJECT/gfp`, not from inside `psc/` or `assignment/`. The jobs use `$SLURM_SUBMIT_DIR` to find `assignment/`, and the `logs/` directory (created by `setup_env.sh`) must exist before `sbatch` runs or Slurm cannot open the output file.
 
-The job sets `BATCH_SIZE = 32` in the deployed `train.py`, since a v100-32 has 32 GB (your laptop copy stays at 8). It requests 4 h on GPU-small.
+The job sets `BATCH_SIZE = 32`, since a 32 GB GPU fits the assignment's original (your laptop copy stays at 8). Override per job with `sbatch --export=ALL,BATCH_SIZE=16 psc/train_progen.job`.
+
+### Every run is isolated — nothing overwrites anything
+
+The assignment's Python hardcodes `models/best_checkpoint.pt` and `design/design.txt` with no run identifier, so jobs sharing a directory silently destroy each other's work. Instead of editing graded files, each job builds its own working tree under `runs/` and the hardcoded relative paths resolve inside it ([psc/_run_dir.sh](_run_dir.sh)):
+
+```text
+runs/train_47264004/          one Slurm job
+  train.py, inference.py …    copies, so `sed -i` touches only this run
+  data -> ../../assignment/data              symlink, shared
+  pretrained_model -> ../../assignment/…     symlink, shared
+  models/best_checkpoint.pt   this run's model, nothing else can write it
+  design/                     this run's designs
+  run.env                     job id, host, GPU, batch size, checkpoint used
+runs/latest-train -> train_47264004
+runs/infer_47264120_greedy/
+runs/latest-infer-greedy -> infer_47264120_greedy
+```
+
+Only the five `.py` files are copied; the weights and the 48k sequences are symlinked, so a run directory costs roughly the checkpoint it produces (~600 MB for training, a few KB for inference, which links the checkpoint rather than copying it).
+
+Two consequences:
+
+- **You can queue variants concurrently.** Several training runs with different batch sizes, or both decoders at once, no longer collide. This is the thing PSC does better than a laptop.
+- **Old results survive new runs.** `runs/latest-train` moves to the newest *successful* training run; everything earlier stays on disk under its job id. Prune by hand when Ocean gets tight (`du -sh runs/*`).
+
+Inference defaults to `runs/latest-train`. Point it elsewhere with `TRAIN_RUN=train_<jobid>` or `CKPT=/path/to/best_checkpoint.pt`.
 
 `setup_env.sh` deliberately builds the conda environment at `$PROJECT/gfp/envs/progen` rather than in `$HOME`. The environment alone is ~6 GB (measured from the equivalent local venv) and conda's package cache adds several more — enough to exhaust the 25 GB `$HOME` quota. The job scripts activate it by that path, so keep the two in step if you move it.
 
@@ -113,12 +139,12 @@ sbatch psc/infer_progen.job                              # greedy
 sbatch --export=ALL,STRATEGY=topp psc/infer_progen.job   # top-p 0.8
 ```
 
-Each writes `design/design_<strategy>.txt` and prints how many designs are unique. If greedy collapses to near-identical sequences, that is the expected consequence of a very low-entropy training set, and it is worth reporting.
+Submit both at once — they run concurrently in separate `runs/infer_<jobid>_<strategy>/` trees and cannot overwrite each other. Each prints its output path and how many designs are unique, and leaves `runs/latest-infer-<strategy>` pointing at itself. If greedy collapses to near-identical sequences, that is the expected consequence of a very low-entropy training set, and it is worth reporting.
 
 Bring results home:
 
 ```sh
-rsync -aP <user>@data.bridges2.psc.edu:/ocean/projects/<group>/<user>/gfp/assignment/design/ ./assignment/design/
+rsync -aP <user>@data.bridges2.psc.edu:/ocean/projects/<group>/<user>/gfp/runs/ ./psc_runs/
 ```
 
 ## 3. AlphaFold 3 (the part worth doing here)
@@ -168,7 +194,7 @@ bash $PROJECT/gfp/alphafold3/fetch_databases.sh $PROJECT/af3/public_databases
 
 ```sh
 cd $PROJECT/gfp
-python3 af3_eval/make_af3_inputs.py assignment/design/design_greedy.txt \
+python3 af3_eval/make_af3_inputs.py runs/latest-infer-greedy/design/design_greedy.txt \
     $PROJECT/af3/af_input --with-msa
 sbatch psc/fold_af3.job
 ```
@@ -184,7 +210,7 @@ python3 af3_eval/rank_af3_outputs.py $PROJECT/af3/af_output \
     --index $PROJECT/af3/af_input/designs_index.csv
 
 python3 af3_eval/divergence_analysis.py \
-    assignment/data/train.txt assignment/design/design_greedy.txt \
+    assignment/data/train.txt runs/latest-infer-greedy/design/design_greedy.txt \
     --ranking $PROJECT/af3/af_output/af3_ranking.csv --top 5 --out report_data/
 ```
 
@@ -198,7 +224,9 @@ Both are standard-library only, so they run in any Python 3.9+ without the conda
 | `squeue -u $USER` | Your queue; `ST` of `PD` = pending, `R` = running |
 | `scancel <jobid>` | Cancel |
 | `sacct -j <jobid> --format=JobID,State,Elapsed,MaxRSS` | What a finished job actually used |
-| `interact -p GPU-shared --gres=gpu:v100-32:1 -t 2:00:00` | Interactive node for debugging (8 h max) |
+| `interact -p GPU-shared --gres=gpu:l40s-48:1 -t 2:00:00` | Interactive node for debugging (8 h max). Not a v100 — torch cu128 cannot run the model there |
+| `sinfo -p GPU-shared -o "%20N %10T %G"` | GPU inventory and node states. Check which types are actually free *before* choosing one |
+| `sprio -j <jobid>` | Why your priority is what it is. A tiny `AGE` term means waiting will not help and resubmitting costs nothing |
 | `projects` / `my_quotas` | Allocation balance and storage |
 
 **Partitions:** `GPU-small` (single v100-32 node, ~2.9 h wait, 48 h max) is the right default for everything in this assignment except AlphaFold 3. `GPU-shared` bills per GPU and is the only route to `h100-80`/`l40s-48`, but averages a 28.5 h wait. `GPU` takes whole 8-GPU nodes and you do not need it.
@@ -214,7 +242,9 @@ Both are standard-library only, so they run in any Python 3.9+ without the conda
 | Password prompt appears repeatedly | Register an SSH key with the PSC SSH Key Manager, or you will retype it on every transfer |
 | Job sits in `PD` for many hours | You are probably on `GPU-shared`. Switch to `GPU-small` and request less walltime |
 | `PD` with `(Nodes required for job are DOWN, DRAINED or reserved...)` | GPU-small is a **single node**, so if it is down or drained you wait for that one machine rather than for your turn. Check `sinfo -p GPU-small`: a `down*` state means unreachable, and `StartTime=Unknown` in `scontrol show job <id>` means Slurm cannot even estimate a start. Hedge with `sbatch -p GPU-shared psc/train_progen.job` |
-| Hedged across two partitions | Fine, but both jobs write `models/best_checkpoint.pt`, and concurrent `torch.save()` calls corrupt it. `train_progen.job` now refuses to start if another `progen_gfp` job is already RUNNING. Note `sbatch` snapshots the script at submit time, so jobs queued before that guard existed are not protected — `scancel` the loser by hand the moment one starts |
+| Hedged across two partitions | Now safe, and encouraged. Each job writes its own `runs/<kind>_<jobid>/`, so concurrent runs cannot corrupt a shared checkpoint. `scancel` the loser once one starts, to stop burning SUs — the surviving run's outputs are unaffected either way |
+| Which run produced this checkpoint? | `cat runs/<run>/run.env` — job id, host, GPU, batch size, and (for inference) the exact checkpoint path it read |
+| `runs/latest-train` missing or stale | It is only repointed when training exits 0, so a failed or timed-out job deliberately leaves it alone. Name a run explicitly: `sbatch --export=ALL,TRAIN_RUN=train_<jobid> psc/infer_progen.job` |
 | `conda: command not found` in a job | The job must `module load anaconda3/2024.10-1` and run `eval "$(conda shell.bash hook)"` before `conda activate` |
 | `RuntimeError: CUDA error: no kernel image is available for execution on the device` | The GPU's architecture has no kernels in this PyTorch build. **torch 2.7.0+cu128 (the version the assignment pins) omits Volta (`sm_70`) on Linux, so every v100 node fails.** Request `l40s-48` (sm_89) or `h100-80` (sm_90) instead — both job scripts now do. To use a V100 anyway, reinstall with `--index-url https://download.pytorch.org/whl/cu126`, which still ships `sm_70`. Confirm with `python -c "import torch; print(torch.cuda.get_arch_list())"` |
 | CUDA OOM at batch 32 | Lower `BATCH_SIZE`, or request a GPU with more memory |

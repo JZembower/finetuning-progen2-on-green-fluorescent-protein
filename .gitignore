@@ -11,6 +11,9 @@ progen/
 assignment/pretrained_model/
 assignment/models/
 assignment/design/
+# Per-job PSC working trees, and whatever you rsync home from them.
+runs/
+psc_runs/
 Assignment_One_Guidelines.pdf
 
 # AlphaFold 3 weights, databases, and local build artifacts

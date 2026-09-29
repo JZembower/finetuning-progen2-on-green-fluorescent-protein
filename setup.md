@@ -200,39 +200,40 @@ rsync -rltpDvP -e ssh assignment/ <user>@data.bridges2.psc.edu:/ocean/projects/<
 
 ### C1. ProGen2 finetuning on Bridges-2
 
-Follow the guidelines' conda recipe, then submit. A v100-32 has 32 GB, so you can use the original `BATCH_SIZE = 32`.
+Use the scripts in [psc/](psc/README.md) rather than hand-rolling a job file — they encode three
+things that are easy to get wrong and expensive to discover from a failed queue slot.
 
 ```sh
-module load anaconda3/2024.10-1
-conda create -n progen python=3.9.16 -y
-conda activate progen
-pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
-pip install transformers==4.49.0
+bash psc/deploy.sh <psc-username>   # from the repo root, in WSL
+ssh <psc-username>@bridges2.psc.edu
+cd $PROJECT/gfp
+bash psc/setup_env.sh               # conda env on Ocean + ProGen2-small, ~10 min
+sbatch psc/train_progen.job
+squeue -u $USER                     # ST: PD = pending, R = running
 ```
 
-`train_progen.job`:
+**Do not request a v100 for ProGen2.** The assignment pins torch 2.7.0+cu128, whose Linux build
+ships no Volta (`sm_70`) kernels, so every v100 node dies inside the first forward pass with
+`no kernel image is available for execution on the device`. That is why the job asks for
+`l40s-48` — and why it must live on GPU-shared, since GPU-small has only v100s. The one-line
+escape, if you would rather have GPU-small's short queue, is to reinstall torch from
+`--index-url https://download.pytorch.org/whl/cu126`, which still includes `sm_70`; that
+deviates from the pinned version, so disclose it if you use it.
 
-```bash
-#!/bin/bash
-#SBATCH -p GPU-shared
-#SBATCH --gpus=v100-32:1
-#SBATCH -t 8:00:00
-#SBATCH -J progen_gfp
-#SBATCH -o progen_%j.out
+**The environment goes on Ocean, not in `$HOME`.** It is ~6 GB and conda's package cache adds
+several more, against a 25 GB `$HOME` quota. `setup_env.sh` builds it at `$PROJECT/gfp/envs/progen`
+and the jobs activate it by path.
 
-module load anaconda3/2024.10-1
-conda activate progen
-cd $PROJECT/assignment
-python -u train.py
-```
+**Every job writes to its own `runs/<kind>_<jobid>/`.** `train.py` and `inference.py` hardcode
+`models/best_checkpoint.pt` and `design/design.txt`, so jobs sharing a directory overwrite each
+other's results — silently, in the inference case. Each job instead gets a private working tree
+with the `.py` files copied and the data and weights symlinked. Concurrent runs are therefore
+safe, which is the main reason to be on a cluster at all: queue several batch sizes, or both
+decoders, at once. See [psc/README.md](psc/README.md#every-run-is-isolated--nothing-overwrites-anything).
 
-```sh
-sbatch train_progen.job
-squeue -u $USER          # watch the queue
-scancel <jobid>          # cancel
-```
-
-Ask for a walltime you will actually use: shorter requests schedule sooner. 8 h is ample at batch 32.
+Ask for a walltime you will actually use: shorter requests schedule sooner, because they fit
+backfill gaps. Training saves on every validation improvement, so a timeout costs you epochs,
+not the whole run.
 
 ### C2. AlphaFold 3 on Bridges-2
 
@@ -290,8 +291,12 @@ singularity exec --nv \
 Generate the inputs with MSA fields omitted so the data pipeline builds them:
 
 ```sh
-python3 af3_eval/make_af3_inputs.py assignment/design/design.txt $PROJECT/af3/af_input --with-msa
+python3 af3_eval/make_af3_inputs.py \
+    runs/latest-infer-greedy/design/design_greedy.txt $PROJECT/af3/af_input --with-msa
 ```
+
+(`runs/latest-infer-<strategy>` is a symlink the inference job repoints on success. Use an
+explicit `runs/infer_<jobid>_<strategy>/` path if you are folding an older run.)
 
 Then rank exactly as locally: `python3 af3_eval/rank_af3_outputs.py $PROJECT/af3/af_output --index .../designs_index.csv`.
 

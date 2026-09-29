@@ -37,34 +37,35 @@ set -euo pipefail
 
 # sbatch runs from wherever you submitted; the Python lives in assignment/.
 ROOT="${SLURM_SUBMIT_DIR:-$PWD}"
-cd "${ROOT}/assignment"
-mkdir -p models design
 
 module load anaconda3/2024.10-1
 eval "$(conda shell.bash hook)"
 # setup_env.sh puts the environment on Ocean, not in the 25 GB $HOME.
 conda activate "${ROOT}/envs/progen"
 
+# Every job gets its own working tree, so nothing here can overwrite an earlier
+# run's checkpoint. See psc/_run_dir.sh for the layout and the reasoning.
+# shellcheck source=_run_dir.sh
+source "${ROOT}/psc/_run_dir.sh"
+
+BATCH_SIZE="${BATCH_SIZE:-32}"
+
+RUN="$(make_run_dir "${ROOT}" train)"
+cd "${RUN}"
+echo "== run directory: ${RUN} =="
+
 echo "host=$(hostname) job=${SLURM_JOB_ID:-none}"
 nvidia-smi --query-gpu=name,compute_cap,memory.total --format=csv,noheader
 
-# Queueing the same job to two partitions (e.g. GPU-small plus GPU-shared, when
-# one is blocked) is a sensible hedge, but both would write models/best_checkpoint.pt
-# and interleave torch.save() calls into one file. Refuse to be the second one.
-OTHER="$(squeue -u "$USER" -n progen_gfp -t RUNNING -h -o '%A' 2>/dev/null \
-         | grep -v "^${SLURM_JOB_ID}$" || true)"
-if [ -n "${OTHER}" ]; then
-  echo "ERROR: job(s) ${OTHER} are already training and share models/." >&2
-  echo "Refusing to run concurrently and corrupt the checkpoint." >&2
-  echo "Cancel the other job, or this one, then resubmit." >&2
-  exit 1
-fi
+write_run_env "${RUN}" "kind=train" "batch_size=${BATCH_SIZE}"
 
-# The committed train.py carries BATCH_SIZE = 8 for an 8 GB laptop GPU. A
-# v100-32 fits the assignment's original 32. This edits the deployed copy only;
-# your laptop copy is untouched. Comment these two lines out to keep 8.
-echo "== setting BATCH_SIZE=32 for a 32 GB GPU =="
-sed -i 's/^BATCH_SIZE = .*/BATCH_SIZE = 32/' train.py
+# This edits only this run's copy of train.py, so parallel jobs can carry
+# different batch sizes and your laptop copy is untouched either way.
+# The committed value is 8, sized for an 8 GB laptop GPU; a 32 GB card fits the
+# assignment's original 32. Override per job:
+#     sbatch --export=ALL,BATCH_SIZE=16 psc/train_progen.job
+echo "== setting BATCH_SIZE=${BATCH_SIZE} =="
+sed -i "s/^BATCH_SIZE = .*/BATCH_SIZE = ${BATCH_SIZE}/" train.py
 grep -n '^BATCH_SIZE' train.py
 
 # Fail fast on an architecture mismatch. Without this the job burns queue time,
@@ -97,5 +98,14 @@ PY
 # -u so the log updates live instead of in 8 KB blocks.
 python -u train.py
 
-echo "== done; checkpoint: =="
-ls -la models/
+echo "finished=$(date -Is)" >> "${RUN}/run.env"
+
+# Only a successful run becomes the default for inference. `set -e` means we
+# never reach this line otherwise, so runs/latest-train can only ever point at
+# a checkpoint that finished training.
+point_latest "${ROOT}" train "${RUN}"
+
+echo "== done =="
+echo "checkpoint: ${RUN}/models/best_checkpoint.pt"
+echo "latest-train now points at $(basename "${RUN}")"
+ls -la "${RUN}/models/"

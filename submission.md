@@ -102,7 +102,14 @@ Copy-Item design\design.txt design\design_topp.txt
 ```
 
 `inference.py` always writes `design/design.txt`, so copy to a distinct name after each run or
-the second overwrites the first.
+the second overwrites the first. The same applies to `models/best_checkpoint.pt` in step 1 — a
+second finetune replaces the first with no warning, so rename it before re-running anything you
+want to keep.
+
+**On PSC this is handled for you.** Each Slurm job works in its own `runs/<kind>_<jobid>/`, so
+both decoders can run concurrently and nothing overwrites anything; the strategy-named copy and
+a `run.env` recording the job, GPU and checkpoint are written automatically. See
+[psc/README.md](psc/README.md#every-run-is-isolated--nothing-overwrites-anything).
 
 Sanity check — expect 92 sequences, all length 237:
 

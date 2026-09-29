@@ -1,7 +1,15 @@
 #!/bin/bash
 # Generate designs from the finetuned checkpoint. Submit after training:
-#     sbatch psc/infer_progen.job
+#     sbatch psc/infer_progen.job                              # greedy
 #     sbatch --export=ALL,STRATEGY=topp psc/infer_progen.job   # top-p instead
+#
+# Both may run at the same time: each job works in its own runs/ directory, so
+# they no longer share inference.py or design/design.txt.
+#
+# Model selection, in precedence order:
+#     (default)                       runs/latest-train, the last good training run
+#     --export=ALL,TRAIN_RUN=train_47264004
+#     --export=ALL,CKPT=/path/to/best_checkpoint.pt
 #
 # Generation is autoregressive with no KV cache, so it is slow per token but
 # short overall: ~7.5 min for all 92 prompts on a laptop GPU, less on a V100.
@@ -17,29 +25,50 @@
 set -euo pipefail
 
 ROOT="${SLURM_SUBMIT_DIR:-$PWD}"
-cd "${ROOT}/assignment"
-mkdir -p design
 
 module load anaconda3/2024.10-1
 eval "$(conda shell.bash hook)"
 conda activate "${ROOT}/envs/progen"
 
-if [ ! -f models/best_checkpoint.pt ]; then
-  echo "ERROR: models/best_checkpoint.pt missing - run train_progen.job first" >&2
-  exit 1
-fi
+# shellcheck source=_run_dir.sh
+source "${ROOT}/psc/_run_dir.sh"
 
 # Default greedy; override with --export=ALL,STRATEGY=topp
 STRATEGY="${STRATEGY:-greedy}"
+
+# Which model to generate from. Defaults to the last training run that
+# finished; CKPT or TRAIN_RUN override. Resolved before the run directory
+# exists so a missing checkpoint fails immediately, not after setup.
+CKPT_PATH="$(resolve_checkpoint "${ROOT}")"
+
+# Tagged with the strategy so runs/ stays readable at a glance.
+RUN="$(make_run_dir "${ROOT}" infer "${STRATEGY}")"
+cd "${RUN}"
+echo "== run directory: ${RUN} =="
+echo "== checkpoint:    ${CKPT_PATH} =="
+
+# inference.py:30 loads models/best_checkpoint.pt relative to the CWD. Link
+# rather than copy - the state dict is ~600 MB and every inference run would
+# otherwise clone it.
+ln -sfn "${CKPT_PATH}" "models/best_checkpoint.pt"
+
+write_run_env "${RUN}" "kind=infer" "strategy=${STRATEGY}" "checkpoint=${CKPT_PATH}"
+
+# Each job seds its own copy, so greedy and top-p can run at the same time.
 echo "== decoding strategy: ${STRATEGY} =="
 sed -i "s/^DECODING_STRATEGY = .*/DECODING_STRATEGY = \"${STRATEGY}\"/" inference.py
 grep -n '^DECODING_STRATEGY' inference.py
 
 python -u inference.py
 
-# Keep each strategy's output separately so you can compare diversity.
+# design.txt is the name inference.py hardcodes; the strategy-named copy is
+# what you collect. Both live in this run only.
 cp design/design.txt "design/design_${STRATEGY}.txt"
+
+echo "finished=$(date -Is)" >> "${RUN}/run.env"
+point_latest "${ROOT}" "infer-${STRATEGY}" "${RUN}"
 
 echo "== unique designs generated (${STRATEGY}): =="
 sort -u "design/design_${STRATEGY}.txt" | wc -l
 wc -l "design/design_${STRATEGY}.txt"
+echo "designs: ${RUN}/design/design_${STRATEGY}.txt"

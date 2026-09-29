@@ -2,4 +2,8 @@
 # patch must keep LF endings even when core.autocrlf=true on Windows.
 alphafold3/** text=auto eol=lf
 *.sh text eol=lf
+# Slurm batch scripts run on Bridges-2. deploy.sh rsyncs the working copy
+# verbatim, so a CRLF checkout on Windows reaches the cluster intact and sbatch
+# dies on the stray carriage return with "command not found".
+*.job text eol=lf
 *.patch text eol=lf

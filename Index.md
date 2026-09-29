@@ -69,6 +69,8 @@ Computed from `assignment/data/train.txt` (see `af3_eval/divergence_analysis.py`
 | 9. Divergence | Consensus of train.txt vs. top 5: substitutions, positions, decoding, interpretation | [af3_eval/divergence_analysis.py](af3_eval/divergence_analysis.py) | `report_data/substitutions.csv`, `consensus.txt` |
 | 10. Report | Top-5 write-up: images, metrics, divergence, interpretation | [report.html](report.html) → print to PDF | submission PDF |
 
+The output paths above are the **local** ones, and they are fixed names — re-running step 4 or 5 overwrites the previous result. On PSC each Slurm job works inside its own `runs/<kind>_<jobid>/` instead, so runs accumulate rather than replace one another and several can run at once ([psc/README.md](psc/README.md#every-run-is-isolated--nothing-overwrites-anything)).
+
 **TODO status — all five are now filled in** (the guidelines' seed and noted hyperparameters are untouched; only `BATCH_SIZE`, which the file marks as changeable, was lowered to 8 for an 8 GB GPU):
 
 | File | What was needed | Implementation |
@@ -89,7 +91,7 @@ Since this is graded work, verify you can explain each line — particularly *wh
 | [assignment/](assignment/) | [GenAIBioMed/GenAIBioMedAssignment1](https://github.com/GenAIBioMed/GenAIBioMedAssignment1) snapshot | PyTorch code plus the MkDocs course page (`docs/`, `mkdocs.yml`) |
 | [alphafold3/](alphafold3/) | [google-deepmind/alphafold3](https://github.com/google-deepmind/alphafold3) snapshot | Inference only; JAX; Linux/Docker. Leave unmodified |
 | [af3_eval/](af3_eval/) | Ours | Stdlib-only glue between ProGen2 output and AF3 |
-| [psc/](psc/README.md) | Ours | Deploy scripts and Slurm jobs for running any part of this on PSC Bridges-2 |
+| [psc/](psc/README.md) | Ours | Deploy scripts and Slurm jobs for running any part of this on PSC Bridges-2. `_run_dir.sh` isolates each job's outputs under `runs/<kind>_<jobid>/` |
 | [lectures/](lectures/) | Course material | `Deep Learning/` (lec1–10: nets → backprop → optimizers → CNNs) and `GenAI for Biomedicine/` (numbered lectures, then research papers). Note `Deep Learning/Lecture/` duplicates its parent byte-for-byte |
 | `progen/` | Local venv (gitignored) | Python 3.10, torch 2.7.0 cu128, transformers 4.49.0 |
 
@@ -137,13 +139,19 @@ Hard-won during this run; each cost real time.
 | **CUDA minor-version compatibility** | `sm_89` (RTX 4060) is absent from the compiled arch list yet works, because an `sm_86` cubin runs on any `sm_8x` device. No such fallback across major versions |
 | **Slurm `REASON` is a catch-all** | The same DOWN/DRAINED string appears whether a node is dead or merely reserved. Read `SCHEDNODES` and `START_TIME` instead; `Unknown` means blocked, `N/A` means not yet scheduled |
 | **GPU-small is one node** | Its short queue (~2.9 h vs ~28.5 h) comes from being a single dedicated node — which also means one drained machine blocks the whole partition |
+| **Count the GPUs before picking a type** | `sinfo -p GPU-shared -o "%20N %10T %G"`. GPU-shared held **three** l40s nodes, two of them drained, against **ten** h100 nodes mostly free. Requesting the scarcer GPU cost ~24 h of queue for no gain. Partition choice is not the whole story — inventory within the partition is |
+| **Slurm's `StartTime` is a worst case** | It assumes every job ahead runs to its full `TimeLimit`, which most do not. Treat it as a soft ceiling, not a countdown. Having one at all beats `N/A`: it means you hold a reservation |
+| **`sprio` tells you whether waiting will help** | Ours was 94% fairshare and 0.03% age, so queueing longer earned almost nothing — and resubmitting with better flags forfeited almost nothing. Check before deciding to sit tight |
+| **Hardcoded output paths** | `train.py` and `inference.py` write `models/best_checkpoint.pt` and `design/design.txt` with no run identifier, so a second run silently replaces the first. Worse for inference, where the job script's `sed` + copy can mislabel one decoder's output as the other's. `psc/_run_dir.sh` gives every Slurm job its own tree |
+| **`ln -sfn` does not reliably replace a symlink** | When the link already points at a directory, some coreutils create the new link *inside* it instead. `rm -f` then `ln -s`. Also: Git Bash fakes symlinks as real directories, so symlink logic cannot be tested there — use WSL |
+| **`.job` files need an LF rule** | `.gitattributes` covered `*.sh` but not `*.job`. `deploy.sh` rsyncs the working copy verbatim, so a CRLF checkout reaches Bridges-2 and `sbatch` fails on the carriage return |
 | **PowerShell ≠ bash** | Heredocs, `$VAR`, and single-quote quoting don't transfer. Use `python -c "..."` |
 | **Server results aren't files** | Viewing AlphaFold Server results in the browser downloads nothing. Click Download, then extract the zips |
 | **pLDDT can't rank near-identical sequences** | The top-5 spread was 0.49 points for sequences differing by 1–3 residues — within AlphaFold's own run-to-run variation |
 
 ## Not in git (runtime artifacts)
 
-`assignment/pretrained_model/`, `assignment/models/`, `assignment/design/`, `progen/`, `af3_work/`, `af3_results/` (~100 MB, and outputs carry [their own terms](alphafold3/OUTPUT_TERMS_OF_USE.md)), `lectures/` (637 MB), AF3 weights (`*.bin.zst`), databases, `submission_code.zip`, `*.log`. See [.gitignore](.gitignore).
+`assignment/pretrained_model/`, `assignment/models/`, `assignment/design/`, `runs/` (per-job PSC working trees), `progen/`, `af3_work/`, `af3_results/` (~100 MB, and outputs carry [their own terms](alphafold3/OUTPUT_TERMS_OF_USE.md)), `lectures/` (637 MB), AF3 weights (`*.bin.zst`), databases, `submission_code.zip`, `*.log`. See [.gitignore](.gitignore).
 
 The distilled numbers — `report_data/` and `af3_results/af3_ranking.csv` — **are** tracked, so the report's claims stay verifiable without the bulk.
 
