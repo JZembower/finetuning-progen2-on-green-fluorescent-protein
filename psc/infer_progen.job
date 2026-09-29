@@ -1,0 +1,45 @@
+#!/bin/bash
+# Generate designs from the finetuned checkpoint. Submit after training:
+#     sbatch psc/infer_progen.job
+#     sbatch --export=ALL,STRATEGY=topp psc/infer_progen.job   # top-p instead
+#
+# Generation is autoregressive with no KV cache, so it is slow per token but
+# short overall: ~7.5 min for all 92 prompts on a laptop GPU, less on a V100.
+# Must match train_progen.job: torch 2.7.0+cu128 has no Volta kernels on Linux,
+# so v100 nodes fail with "no kernel image is available for execution".
+#SBATCH --partition=GPU-shared
+#SBATCH --gpus=l40s-48:1
+#SBATCH --time=1:00:00
+#SBATCH --job-name=progen_design
+#SBATCH --output=logs/design_%j.out
+#SBATCH --error=logs/design_%j.out
+
+set -euo pipefail
+
+ROOT="${SLURM_SUBMIT_DIR:-$PWD}"
+cd "${ROOT}/assignment"
+mkdir -p design
+
+module load anaconda3/2024.10-1
+eval "$(conda shell.bash hook)"
+conda activate "${ROOT}/envs/progen"
+
+if [ ! -f models/best_checkpoint.pt ]; then
+  echo "ERROR: models/best_checkpoint.pt missing - run train_progen.job first" >&2
+  exit 1
+fi
+
+# Default greedy; override with --export=ALL,STRATEGY=topp
+STRATEGY="${STRATEGY:-greedy}"
+echo "== decoding strategy: ${STRATEGY} =="
+sed -i "s/^DECODING_STRATEGY = .*/DECODING_STRATEGY = \"${STRATEGY}\"/" inference.py
+grep -n '^DECODING_STRATEGY' inference.py
+
+python -u inference.py
+
+# Keep each strategy's output separately so you can compare diversity.
+cp design/design.txt "design/design_${STRATEGY}.txt"
+
+echo "== unique designs generated (${STRATEGY}): =="
+sort -u "design/design_${STRATEGY}.txt" | wc -l
+wc -l "design/design_${STRATEGY}.txt"

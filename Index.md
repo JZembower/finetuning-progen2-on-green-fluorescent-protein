@@ -2,7 +2,15 @@
 
 **What this repo does:** CMU 11781/02741 Assignment 1. We finetune **ProGen2-small** on green fluorescent protein (GFP) sequences, generate new GFP designs from 64-residue prompts, fold them with **AlphaFold 3**, keep the top 5 by pLDDT (with pTM > 0.8), and compare them to the training-set consensus.
 
-Setup and run instructions: [setup.md](setup.md). Background and history: [README.md](README.md). Assignment spec: `Assignment_One_Guidelines.pdf` (gitignored) or [assignment/docs/index.md](assignment/docs/index.md).
+| Document | Purpose |
+| --- | --- |
+| [submission.md](submission.md) | **Start here to reproduce or resubmit** — the end-to-end runbook, clean checkout to zip |
+| [setup.md](setup.md) | Environment setup: ProGen2 venv, AlphaFold 3 via Docker, the three folding routes |
+| [psc/README.md](psc/README.md) | Running any part of this on PSC Bridges-2 |
+| [report.html](report.html) | The submitted report; open and print to PDF |
+| [README.md](README.md) | Repo origin and how the two upstream codebases relate |
+
+Assignment spec: `Assignment_One_Guidelines.pdf` (gitignored) or [assignment/docs/index.md](assignment/docs/index.md).
 
 ## Why this assignment is shaped this way
 
@@ -58,7 +66,8 @@ Computed from `assignment/data/train.txt` (see `af3_eval/divergence_analysis.py`
 | 6. AF3 inputs | design.txt → one AF3 JSON per design (MSA-free by default) | [af3_eval/make_af3_inputs.py](af3_eval/make_af3_inputs.py) | `~/af3/af_input/` |
 | 7. Fold | AF3 inference in Docker, or AlphaFold Server | [alphafold3/run_alphafold.py](alphafold3/run_alphafold.py) | `~/af3/af_output/` |
 | 8. Rank | Mean pLDDT, pTM > 0.8 filter, top 5 | [af3_eval/rank_af3_outputs.py](af3_eval/rank_af3_outputs.py) | `af3_ranking.csv` |
-| 9. Divergence | Consensus of train.txt vs. top 5: substitutions, positions, decoding, interpretation | [af3_eval/divergence_analysis.py](af3_eval/divergence_analysis.py) | `substitutions.csv`, `consensus.txt` |
+| 9. Divergence | Consensus of train.txt vs. top 5: substitutions, positions, decoding, interpretation | [af3_eval/divergence_analysis.py](af3_eval/divergence_analysis.py) | `report_data/substitutions.csv`, `consensus.txt` |
+| 10. Report | Top-5 write-up: images, metrics, divergence, interpretation | [report.html](report.html) → print to PDF | submission PDF |
 
 **TODO status — all five are now filled in** (the guidelines' seed and noted hyperparameters are untouched; only `BATCH_SIZE`, which the file marks as changeable, was lowered to 8 for an 8 GB GPU):
 
@@ -80,6 +89,7 @@ Since this is graded work, verify you can explain each line — particularly *wh
 | [assignment/](assignment/) | [GenAIBioMed/GenAIBioMedAssignment1](https://github.com/GenAIBioMed/GenAIBioMedAssignment1) snapshot | PyTorch code plus the MkDocs course page (`docs/`, `mkdocs.yml`) |
 | [alphafold3/](alphafold3/) | [google-deepmind/alphafold3](https://github.com/google-deepmind/alphafold3) snapshot | Inference only; JAX; Linux/Docker. Leave unmodified |
 | [af3_eval/](af3_eval/) | Ours | Stdlib-only glue between ProGen2 output and AF3 |
+| [psc/](psc/README.md) | Ours | Deploy scripts and Slurm jobs for running any part of this on PSC Bridges-2 |
 | [lectures/](lectures/) | Course material | `Deep Learning/` (lec1–10: nets → backprop → optimizers → CNNs) and `GenAI for Biomedicine/` (numbered lectures, then research papers). Note `Deep Learning/Lecture/` duplicates its parent byte-for-byte |
 | `progen/` | Local venv (gitignored) | Python 3.10, torch 2.7.0 cu128, transformers 4.49.0 |
 
@@ -99,9 +109,45 @@ Since this is graded work, verify you can explain each line — particularly *wh
 | mmCIF / structure handling | [src/alphafold3/structure/](alphafold3/src/alphafold3/structure/) |
 | Terms for weights and outputs | [WEIGHTS_TERMS_OF_USE.md](alphafold3/WEIGHTS_TERMS_OF_USE.md), [OUTPUT_TERMS_OF_USE.md](alphafold3/OUTPUT_TERMS_OF_USE.md) |
 
+## Results (this run)
+
+| | |
+| --- | --- |
+| Finetuning | 5 of 10 epochs, `BATCH_SIZE = 8`, validation loss 0.1438 → **0.0915** |
+| Designs | 92 per decoder, all exactly 237 residues, all unique |
+| Folded | 20 on the AlphaFold Server — **20/20 with pTM > 0.8** |
+| Top 5 | design_018, 007, 008, 010, 006 — pLDDT 92.30 → 91.81, pTM 0.91–0.92 |
+| **Greedy contribution** | **0** substitutions beyond position 64, across all 92 designs |
+| **Top-p (p=0.8) contribution** | **3** substitutions beyond position 64, in 3 of 92 designs |
+
+The central finding: **188 of 191 substitutions were inherited from the 64-residue prompts, not authored by the model.** The designs look diverse only because their prompts differ. See the interpretation in [report.html](report.html).
+
+## Things worth knowing before re-running
+
+Hard-won during this run; each cost real time.
+
+| Gotcha | Detail |
+| --- | --- |
+| **Prompt vs. model attribution** | The prompt is positions 1–64. Substitutions there were *given* to the model. Always split at 64 before claiming the model contributed something |
+| **`python -u`** | Without it, stdout buffers in 8 KB blocks and a 6-hour run shows no progress for ~30 min at a time |
+| **VRAM oversubscription** | High `utilization.gpu` + low `utilization.memory` + near-zero `memory.free` means Windows WDDM is paging VRAM to system RAM. Throughput drops ~5× with no throttle flags set. Check `memory.free` before blaming thermals |
+| **Laptop power profiles** | A vendor "Silent" scheme caps CPU/GPU even on AC. `powercfg /list` then `/setactive`. Separate from, and additive to, the VRAM issue |
+| **Batch size changes the LR schedule** | The schedule is `num_updates^-0.5`, and batch size sets updates/epoch (5,982 at batch 8 vs 1,496 at 32). Not a free knob — disclose it |
+| **torch cu128 has no Volta kernels on Linux** | V100s fail with `no kernel image is available for execution on the device`. The *Windows* build does include `sm_70`, so this cannot be reproduced locally. Request `l40s-48`/`h100-80`, or install a cu126 build |
+| **CUDA minor-version compatibility** | `sm_89` (RTX 4060) is absent from the compiled arch list yet works, because an `sm_86` cubin runs on any `sm_8x` device. No such fallback across major versions |
+| **Slurm `REASON` is a catch-all** | The same DOWN/DRAINED string appears whether a node is dead or merely reserved. Read `SCHEDNODES` and `START_TIME` instead; `Unknown` means blocked, `N/A` means not yet scheduled |
+| **GPU-small is one node** | Its short queue (~2.9 h vs ~28.5 h) comes from being a single dedicated node — which also means one drained machine blocks the whole partition |
+| **PowerShell ≠ bash** | Heredocs, `$VAR`, and single-quote quoting don't transfer. Use `python -c "..."` |
+| **Server results aren't files** | Viewing AlphaFold Server results in the browser downloads nothing. Click Download, then extract the zips |
+| **pLDDT can't rank near-identical sequences** | The top-5 spread was 0.49 points for sequences differing by 1–3 residues — within AlphaFold's own run-to-run variation |
+
 ## Not in git (runtime artifacts)
 
-`assignment/pretrained_model/`, `assignment/models/`, `assignment/design/`, `progen/`, `af3_work/`, AF3 weights (`*.bin.zst`), databases, `af_input/`, `af_output/`. See [.gitignore](.gitignore).
+`assignment/pretrained_model/`, `assignment/models/`, `assignment/design/`, `progen/`, `af3_work/`, `af3_results/` (~100 MB, and outputs carry [their own terms](alphafold3/OUTPUT_TERMS_OF_USE.md)), `lectures/` (637 MB), AF3 weights (`*.bin.zst`), databases, `submission_code.zip`, `*.log`. See [.gitignore](.gitignore).
+
+The distilled numbers — `report_data/` and `af3_results/af3_ranking.csv` — **are** tracked, so the report's claims stay verifiable without the bulk.
+
+**No credentials exist in this repo.** The `.gitignore` carries defensive patterns (`.env`, `*.pem`, `id_rsa*`, `credentials.json`, …) so a stray file can't be committed later, and the `psc/` scripts use `<psc-username>` placeholders rather than real identifiers.
 
 ## Deliverables (from the guidelines)
 

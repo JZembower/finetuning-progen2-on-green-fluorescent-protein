@@ -1,0 +1,101 @@
+#!/bin/bash
+# Finetune ProGen2-small on GFP. Submit from the deployed project root:
+#     sbatch psc/train_progen.job
+#
+# PARTITION CHOICE IS THE WHOLE GAME HERE. Same v100-32 hardware, wildly
+# different queues (PSC/ACCESS figures, 2026-09-28):
+#
+#   GPU-small   ~2.9 h average wait (range 0-6 h)    <- this script
+#   GPU-shared  ~28.5 h average wait (range 0.1-96 h)
+#   GPU         ~29.3 h average wait
+#
+# GPU-small is a single v100-32 node for "interactive and small or quick GPU
+# jobs", takes batch submissions, and allows up to 48 h walltime. For a ~3 h
+# finetune it is strictly better than GPU-shared.
+#
+# Switch to GPU-shared only to reach an h100-80 or l40s-48, which GPU-small does
+# not have. For this job that trade is bad: you would save ~2 h of compute and
+# pay ~26 h of extra queue.
+#
+# GPU TYPE: torch 2.7.0+cu128 (pinned by the assignment) does not ship Volta
+# kernels in its Linux build, so a v100 dies with
+#     RuntimeError: CUDA error: no kernel image is available for execution on the device
+# Ada (l40s-48, sm_89) and Hopper (h100-80, sm_90) both work. Those live on
+# GPU-shared, not GPU-small, so the short single-node queue is unavailable to us.
+#
+# To use a V100 anyway, reinstall torch built against CUDA 12.6, which still
+# includes sm_70:
+#     pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cu126
+#SBATCH --partition=GPU-shared
+#SBATCH --gpus=l40s-48:1
+#SBATCH --time=4:00:00
+#SBATCH --job-name=progen_gfp
+#SBATCH --output=logs/progen_%j.out
+#SBATCH --error=logs/progen_%j.out
+
+set -euo pipefail
+
+# sbatch runs from wherever you submitted; the Python lives in assignment/.
+ROOT="${SLURM_SUBMIT_DIR:-$PWD}"
+cd "${ROOT}/assignment"
+mkdir -p models design
+
+module load anaconda3/2024.10-1
+eval "$(conda shell.bash hook)"
+# setup_env.sh puts the environment on Ocean, not in the 25 GB $HOME.
+conda activate "${ROOT}/envs/progen"
+
+echo "host=$(hostname) job=${SLURM_JOB_ID:-none}"
+nvidia-smi --query-gpu=name,compute_cap,memory.total --format=csv,noheader
+
+# Queueing the same job to two partitions (e.g. GPU-small plus GPU-shared, when
+# one is blocked) is a sensible hedge, but both would write models/best_checkpoint.pt
+# and interleave torch.save() calls into one file. Refuse to be the second one.
+OTHER="$(squeue -u "$USER" -n progen_gfp -t RUNNING -h -o '%A' 2>/dev/null \
+         | grep -v "^${SLURM_JOB_ID}$" || true)"
+if [ -n "${OTHER}" ]; then
+  echo "ERROR: job(s) ${OTHER} are already training and share models/." >&2
+  echo "Refusing to run concurrently and corrupt the checkpoint." >&2
+  echo "Cancel the other job, or this one, then resubmit." >&2
+  exit 1
+fi
+
+# The committed train.py carries BATCH_SIZE = 8 for an 8 GB laptop GPU. A
+# v100-32 fits the assignment's original 32. This edits the deployed copy only;
+# your laptop copy is untouched. Comment these two lines out to keep 8.
+echo "== setting BATCH_SIZE=32 for a 32 GB GPU =="
+sed -i 's/^BATCH_SIZE = .*/BATCH_SIZE = 32/' train.py
+grep -n '^BATCH_SIZE' train.py
+
+# Fail fast on an architecture mismatch. Without this the job burns queue time,
+# loads the model, then dies inside the first forward pass with an opaque
+# "no kernel image is available" error.
+echo "== checking GPU/torch architecture compatibility =="
+python - <<'PY'
+import sys, torch
+archs = torch.cuda.get_arch_list()
+major, minor = torch.cuda.get_device_capability(0)
+print(f"device: {torch.cuda.get_device_name(0)} (sm_{major}{minor})")
+print(f"torch {torch.__version__} built for: {archs}")
+
+# A cubin runs on a newer device of the SAME major version (sm_86 -> sm_89),
+# but never across major versions.
+ok = any(
+    a.startswith("sm_")
+    and int(a[3:-1]) == major
+    and int(a[-1]) <= minor
+    for a in archs
+)
+if not ok:
+    print(f"FATAL: no compiled kernels for sm_{major}{minor}.", file=sys.stderr)
+    print("Request a different GPU (--gpus=l40s-48:1 or h100-80:1), or install", file=sys.stderr)
+    print("a torch built against cu126, which still includes Volta (sm_70).", file=sys.stderr)
+    sys.exit(1)
+print("compatible.")
+PY
+
+# -u so the log updates live instead of in 8 KB blocks.
+python -u train.py
+
+echo "== done; checkpoint: =="
+ls -la models/

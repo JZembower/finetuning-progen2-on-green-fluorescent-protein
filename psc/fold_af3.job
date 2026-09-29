@@ -1,0 +1,73 @@
+#!/bin/bash
+# Fold designs with AlphaFold 3, with full MSA search. Submit with:
+#     sbatch psc/fold_af3.job
+#
+# GPU CHOICE MATTERS. AlphaFold 3 requires CUDA compute capability >= 8.0.
+# v100-16 and v100-32 are CC 7.0: DeepMind does not validate accuracy there, and
+# without XLA_FLAGS=--xla_disable_hlo_passes=custom-kernel-fusion-rewriter they
+# produce badly clashing structures. Use l40s-48 (CC 8.9) or h100-80 (CC 9.0).
+#
+# Prerequisites, both set up by psc/README.md:
+#   $PROJECT/af3/alphafold3.sif      built on your laptop and copied over
+#   $PROJECT/af3/models/af3.bin.zst  the weights
+#   $PROJECT/af3/public_databases/   ~630 GB, only needed for MSA search
+#   $PROJECT/af3/af_input/*.json     from make_af3_inputs.py --with-msa
+#
+# MSA search is CPU- and RAM-bound, not GPU-bound, which is why this asks for
+# plenty of cores. DeepMind recommends >= 64 GB RAM for the genetic search.
+#SBATCH --partition=GPU-shared
+#SBATCH --gpus=l40s-48:1
+#SBATCH --time=12:00:00
+#SBATCH --job-name=af3_fold
+#SBATCH --output=logs/af3_%j.out
+#SBATCH --error=logs/af3_%j.out
+
+set -euo pipefail
+
+cd "${SLURM_SUBMIT_DIR:-$PWD}"
+
+AF3_DIR="${PROJECT}/af3"
+mkdir -p "${AF3_DIR}/af_output" "${AF3_DIR}/jax_cache"
+
+for required in "${AF3_DIR}/alphafold3.sif" "${AF3_DIR}/models/af3.bin.zst"; do
+  if [ ! -e "$required" ]; then
+    echo "ERROR: missing $required - see psc/README.md" >&2
+    exit 1
+  fi
+done
+
+echo "host=$(hostname) job=${SLURM_JOB_ID:-none}"
+nvidia-smi --query-gpu=name,compute_cap,memory.total --format=csv,noheader
+
+# Ocean is shared, networked storage; the MSA tools hammer it with random reads.
+# $LOCAL is node-local scratch and much faster, but is wiped when the job ends.
+DB_SOURCE="${AF3_DIR}/public_databases"
+if [ -d "$DB_SOURCE" ]; then
+  echo "== staging databases to \$LOCAL (this takes a while, but pays for itself) =="
+  mkdir -p "${LOCAL}/public_databases"
+  rsync -a "${DB_SOURCE}/" "${LOCAL}/public_databases/"
+  DB_MOUNT="${LOCAL}/public_databases"
+  PIPELINE_FLAGS=(--db_dir=/root/public_databases)
+else
+  echo "== no databases found; running MSA-free (lower confidence scores) =="
+  DB_MOUNT="${AF3_DIR}"   # Placeholder bind; unused when the pipeline is off.
+  PIPELINE_FLAGS=(--norun_data_pipeline)
+fi
+
+# --nv exposes the GPU to the container, the equivalent of docker --gpus all.
+singularity exec --nv \
+  --bind "${AF3_DIR}/af_input":/root/af_input \
+  --bind "${AF3_DIR}/af_output":/root/af_output \
+  --bind "${AF3_DIR}/models":/root/models \
+  --bind "${AF3_DIR}/jax_cache":/root/jax_cache \
+  --bind "${DB_MOUNT}":/root/public_databases \
+  "${AF3_DIR}/alphafold3.sif" \
+  python run_alphafold.py \
+    --input_dir=/root/af_input \
+    --output_dir=/root/af_output \
+    --model_dir=/root/models \
+    --jax_compilation_cache_dir=/root/jax_cache \
+    "${PIPELINE_FLAGS[@]}"
+
+echo "== done. Rank with: =="
+echo "  python3 af3_eval/rank_af3_outputs.py ${AF3_DIR}/af_output --index ${AF3_DIR}/af_input/designs_index.csv"

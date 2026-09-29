@@ -31,3 +31,41 @@ af3_work/
 *.sif
 
 lectures/
+
+*fold_design_*/
+
+# AlphaFold 3 server results: ~100 MB of JSON/mmCIF per run, and the outputs are
+# covered by alphafold3/OUTPUT_TERMS_OF_USE.md. Keep the bulk local, but track the
+# ranking table and the report figures so report.html stays self-contained.
+# Note: this must exclude the directory *contents* (af3_results/*), not the
+# directory itself - git cannot re-include a file whose parent dir is excluded.
+af3_results/*
+!af3_results/af3_ranking.csv
+!af3_results/images/
+
+# Build artifacts and run logs
+submission_code.zip
+*.log
+assignment/train.log
+
+# Credentials - none exist in this repo today; these are defensive so that a
+# stray file never gets committed later.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.ppk
+.netrc
+_netrc
+credentials.json
+client_secret*.json
+service-account*.json
+secrets.*
+*.secrets
+.aws/
+.ssh/

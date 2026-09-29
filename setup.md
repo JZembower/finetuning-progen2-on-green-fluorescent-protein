@@ -11,11 +11,11 @@ The guidelines allow either the AF3 **web server** or the **GitHub code**. On th
 | --- | --- | --- | --- | --- |
 | **A. AlphaFold Server** | Yes (server-side) | Browser | 30 jobs/day per Google account | The numbers and pictures in the final report (what the pTM > 0.8 bar assumes) |
 | **B. Local Docker, MSA-free** | No | This laptop (WSL2 + RTX 4060, 8 GB) | pLDDT/pTM run lower without an MSA | Screening all ~92 designs quickly, with no daily cap |
-| **C. PSC Bridges-2** | Yes, if the databases are available there | HPC GPU node | ~28 h average queue wait; 630 GB of databases to stage | Bigger models, or MSA folding beyond the server's daily cap |
+| **C. PSC Bridges-2** | Yes, if the databases are available there | HPC GPU node | ~2.9 h queue on GPU-small for training; ~28 h on GPU-shared, which AF3 requires | Faster training at batch 32, concurrent runs, a free laptop |
 
 **Recommended:** use B to screen every design, then send the top 10–15 to A (about one day of server quota) and report the server's pLDDT, pTM and structure images. Scores from B and A are **not comparable** with each other: rank inside one method, and report numbers from one method.
 
-**On PSC specifically:** the finetune takes 5.8 h locally (measured), while the Bridges-2 GPU-shared queue is averaging a 28.5 h wait. Everything this assignment needs runs faster on the laptop. See [Path C](#path-c-psc-bridges-2) for when PSC is genuinely the better choice.
+**On PSC specifically:** for *training*, submit to the **GPU-small** partition (~2.9 h queue), not GPU-shared (~28.5 h). A v100-32 runs batch 32 against the laptop's forced batch 8, so compute is roughly 2× faster and wall clock comes out about even — the wins are a free laptop and the ability to run jobs concurrently. See [psc/README.md](psc/README.md).
 
 ---
 
@@ -157,17 +157,19 @@ pLDDT is averaged over all atoms in `atom_plddts`, which matches the server's co
 
 ## Path C: PSC Bridges-2
 
+> Ready-to-run scripts for this path live in [psc/](psc/README.md): `deploy.sh`, `setup_env.sh`, `build_af3_sif.sh` and Slurm jobs for training, inference and folding. The section below is the reasoning; that directory is the implementation.
+
 ### Do you actually need PSC for this assignment?
 
 **Short answer: no.** Both halves of the assignment fit on this laptop, and the measured numbers say so:
 
 | Stage | This laptop (measured) | Bridges-2 |
 | --- | --- | --- |
-| ProGen2 finetune, 10 epochs | **5.8 h**, batch 8, peak 4.5 GiB | ~2–3 h on v100-32, ~1 h on h100-80 — **plus a queue wait averaging 28.5 h** on GPU-shared |
+| ProGen2 finetune, 10 epochs | **5.8 h**, batch 8, peak 4.5 GiB | ~2.5–3 h on v100-32 at batch 32, plus **~2.9 h queue on GPU-small** |
 | AF3 folding, 92 designs, MSA-free | minutes after the first compile | same, plus queue |
 | AF3 folding with MSAs | not possible (needs 630 GB of databases) | possible, but you must stage 630 GB into `$PROJECT` first |
 
-The GPU-shared queue wait alone (28.5 h average on 2026-09-28, per [ACCESS](https://support.access-ci.org/documentation/resources/psc-bridges-2-gpu-bridges-2-gpu)) is longer than running the entire finetune locally. Since the finetune saves a checkpoint after every epoch, a local run is also easier to babysit and restart.
+For training, the partition matters more than the GPU. **GPU-small** averages a 2.9 h wait and has the same v100-32 hardware as GPU-shared, which averages 28.5 h ([ACCESS figures](https://support.access-ci.org/documentation/resources/psc-bridges-2-gpu-bridges-2-gpu), 2026-09-28). On GPU-small the finetune is roughly wall-clock neutral against the laptop — the real gains are that your laptop stays free and that you can run several jobs concurrently. AlphaFold 3 is the exception: it needs compute capability ≥ 8.0, so it cannot run on V100s and must go through GPU-shared for an l40s-48 or h100-80.
 
 **The MSA question is the one real reason to consider PSC** — and even there, the AlphaFold **Server** (Path A) gives you MSA-based folding with no queue and no 630 GB download. That is why the recommendation is local screening plus server confirmation.
 

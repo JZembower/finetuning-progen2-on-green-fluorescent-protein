@@ -20,7 +20,7 @@ OUTPUT_FILE_NAME = "design.txt"
 
 # decoding parameters
 MAX_SEQ_LENGTH = 512
-DECODING_STRATEGY = "greedy" # you can also try topp
+DECODING_STRATEGY = "topp" # you can also try topp
 
 test_dataloader = get_dataloader(DATA_PATH, 'test', BATCH_SIZE, shuffle=False)
 eos_idx = alphabet.eos()
