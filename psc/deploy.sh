@@ -32,6 +32,20 @@ GROUP="${2:-}"
 
 DTN="data.bridges2.psc.edu"   # Data transfer node - not the login node.
 
+# This script pushes your laptop's copy TO the cluster. Run on the cluster it
+# would rsync the deployed tree onto itself, and could never transfer a file
+# that only exists locally - which is the whole point of running it.
+if [ -d /ocean/projects ] || case "$(hostname -f 2>/dev/null || hostname)" in
+     *bridges2*|*psc.edu) true ;; *) false ;; esac
+then
+  echo "ERROR: this looks like a PSC machine - deploy.sh runs on your LAPTOP." >&2
+  echo >&2
+  echo "It copies the local repository to Bridges-2, so running it here does" >&2
+  echo "nothing useful. From the repo root on your laptop, in WSL:" >&2
+  echo "  bash psc/deploy.sh ${USER_NAME}" >&2
+  exit 1
+fi
+
 if [ -n "${GROUP}" ]; then
   # The allocation title ("CIS261594: 11781 Generative AI...") is not the group.
   # Unquoted it also word-splits into a broken path, so reject anything that
@@ -50,8 +64,22 @@ else
   # Ask the cluster instead of guessing. Group names often carry a suffix
   # letter (cis261594p, not cis261594), which is easy to get wrong by hand.
   echo "Resolving your project directories on ${DTN} ..."
-  ALL_PROJECTS="$(ssh "${USER_NAME}@${DTN}" \
-    'ls -d /ocean/projects/*/"$USER" 2>/dev/null')"
+  # Feed the snippet to `bash -s` on stdin rather than passing it as an ssh
+  # command string. Transfer nodes often run a restricted or non-POSIX login
+  # shell, and at least one of them hands `2>/dev/null` to ls as a FILENAME
+  # instead of treating it as a redirect. Forcing bash sidesteps the question
+  # of what the remote login shell is.
+  #
+  # `|| true` so an empty result is an empty string, not a fatal exit under
+  # `set -e` - the "no allocation found" message below is far more useful than
+  # a silent abort.
+  ALL_PROJECTS="$(ssh "${USER_NAME}@${DTN}" bash -s <<'REMOTE' || true
+shopt -s nullglob
+for d in /ocean/projects/*/"$USER"; do
+  [ -d "$d" ] && printf '%s\n' "$d"
+done
+REMOTE
+)"
 
   if [ -z "${ALL_PROJECTS}" ]; then
     echo "ERROR: could not find any project directory for ${USER_NAME}." >&2

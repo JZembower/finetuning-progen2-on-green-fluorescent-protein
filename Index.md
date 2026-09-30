@@ -71,7 +71,7 @@ Computed from `assignment/data/train.txt` (see `af3_eval/divergence_analysis.py`
 
 The output paths above are the **local** ones, and they are fixed names — re-running step 4 or 5 overwrites the previous result. On PSC each Slurm job works inside its own `runs/<kind>_<jobid>/` instead, so runs accumulate rather than replace one another and several can run at once ([psc/README.md](psc/README.md#every-run-is-isolated--nothing-overwrites-anything)).
 
-**TODO status — all five are now filled in** (the guidelines' seed and noted hyperparameters are untouched; only `BATCH_SIZE`, which the file marks as changeable, was lowered to 8 for an 8 GB GPU):
+**TODO status — all five are now filled in** (the guidelines' seed and hyperparameters are untouched: the reported run used `EPOCHS = 10` and `BATCH_SIZE = 32` as provided, which is why it ran on PSC rather than an 8 GB laptop GPU. `inference.py` ships with `DECODING_STRATEGY = "topp"`, matching the reported candidates):
 
 | File | What was needed | Implementation |
 | --- | --- | --- |
@@ -115,14 +115,22 @@ Since this is graded work, verify you can explain each line — particularly *wh
 
 | | |
 | --- | --- |
-| Finetuning | 5 of 10 epochs, `BATCH_SIZE = 8`, validation loss 0.1438 → **0.0915** |
+| Finetuning | **10 of 10 epochs**, `BATCH_SIZE = 32`, on PSC Bridges-2 (l40s-48, 1 h 41 m) |
+| Checkpoint used | **epoch 7**, validation loss **0.08718** — the best-validation checkpoint, not the last |
+| Convergence | validation loss bottoms out by epoch 3; a replicate run on an h100 bottomed out at **epoch 1** |
+| Run-to-run noise | the two runs' best losses differ by 0.00215; the h100 run's own epoch-to-epoch range is 0.0339 — **16× larger** |
 | Designs | 92 per decoder, all exactly 237 residues, all unique |
-| Folded | 20 on the AlphaFold Server — **20/20 with pTM > 0.8** |
-| Top 5 | design_018, 007, 008, 010, 006 — pLDDT 92.30 → 91.81, pTM 0.91–0.92 |
+| Folded | 20 on the AlphaFold Server — 20/20 with pTM > 0.8 |
+| Ranked | **18 of 20** — design_006 and design_011 correspond to sequences this checkpoint no longer produces |
+| Top 5 | design_018, 007, 008, 010, **001** — pLDDT 92.30 → 91.57, pTM 0.91–0.92 |
 | **Greedy contribution** | **0** substitutions beyond position 64, across all 92 designs |
-| **Top-p (p=0.8) contribution** | **3** substitutions beyond position 64, in 3 of 92 designs |
+| **Top-p (p=0.8) contribution** | **5** substitutions beyond position 64, in 5 of 92 designs |
 
-The central finding: **188 of 191 substitutions were inherited from the 64-residue prompts, not authored by the model.** The designs look diverse only because their prompts differ. See the interpretation in [report.html](report.html).
+Two findings carry the report:
+
+**188 of 193 substitutions were inherited from the 64-residue prompts, not authored by the model** — and none of the five model-authored substitutions lands in a top-5 candidate, so all 9 substitutions in the reported designs came from their prompts. The designs look diverse only because their prompts differ.
+
+**Greedy output is invariant to training length.** The greedy design set from this 10-epoch batch-32 checkpoint is *byte-identical* to the one from an earlier 5-epoch batch-8 checkpoint — all 92 sequences, across all 92 × 173 = 15,916 generated positions. Under top-p the same comparison changes only 8 of 92 designs. See [report.html](report.html).
 
 ## Things worth knowing before re-running
 
@@ -153,7 +161,7 @@ Hard-won during this run; each cost real time.
 
 `assignment/pretrained_model/`, `assignment/models/`, `assignment/design/`, `runs/` (per-job PSC working trees), `progen/`, `af3_work/`, `af3_results/` (~100 MB, and outputs carry [their own terms](alphafold3/OUTPUT_TERMS_OF_USE.md)), `lectures/` (637 MB), AF3 weights (`*.bin.zst`), databases, `submission_code.zip`, `*.log`. See [.gitignore](.gitignore).
 
-The distilled numbers — `report_data/` and `af3_results/af3_ranking.csv` — **are** tracked, so the report's claims stay verifiable without the bulk.
+The distilled numbers — `report_data/`, `af3_results/af3_ranking.csv` and `af3_results/af3_ranking_10ep.csv` — **are** tracked, so the report's claims stay verifiable without the bulk. The `_10ep` file is the same ranking with design_006 and design_011 removed: their sequences changed between finetuning runs, so the folded structures no longer match what the reported checkpoint generates. `divergence_analysis.py --ranking af3_results/af3_ranking_10ep.csv` reproduces `report_data/` exactly.
 
 **No credentials exist in this repo.** The `.gitignore` carries defensive patterns (`.env`, `*.pem`, `id_rsa*`, `credentials.json`, …) so a stray file can't be committed later, and the `psc/` scripts use `<psc-username>` placeholders rather than real identifiers.
 

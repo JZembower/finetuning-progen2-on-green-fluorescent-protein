@@ -6,6 +6,5 @@ rank,design,mean_plddt,ptm,substitution,consensus_residue,position,design_residu
 3,design_008,92.08,0.92,V54A,V,54,A,0.9868
 4,design_010,91.86,0.92,C47Y,C,47,Y,0.9924
 4,design_010,91.86,0.92,T61A,T,61,A,0.9773
-5,design_006,91.81,0.91,A36G,A,36,G,0.999
-5,design_006,91.81,0.91,T58P,T,58,P,0.9855
-5,design_006,91.81,0.91,N134S,N,134,S,0.9711
+5,design_001,91.57,0.91,C47S,C,47,S,0.9924
+5,design_001,91.57,0.91,K51R,K,51,R,0.9717

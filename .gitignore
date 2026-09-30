@@ -44,6 +44,7 @@ lectures/
 # directory itself - git cannot re-include a file whose parent dir is excluded.
 af3_results/*
 !af3_results/af3_ranking.csv
+!af3_results/af3_ranking_10ep.csv
 !af3_results/images/
 
 # Build artifacts and run logs

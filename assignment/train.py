@@ -17,7 +17,7 @@ EPOCHS = 10
 # you might modify based on the computing resources you used
 # 8 fits an 8 GB RTX 4060 (peak ~4.5 GiB). 16 peaks at 7.35 GiB and thrashes:
 # 1.99 s/step vs 0.35 s/step at 8, i.e. 16.5 h vs 5.8 h for the 10 epochs.
-BATCH_SIZE = 8
+BATCH_SIZE = 32
 
 PRETRAINED_MODEL = "progen2-small"
 PRETRAINED_MODEL_PATH = "pretrained_model"
