@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Assignment 1 — Top-5 Candidate Report</title>
+<style>
+:root { --ink:#1a1a1a; --muted:#5a5a5a; --rule:#d8d8d8; --accent:#1a4d8f; --bg-soft:#f6f7f9; }
+* { box-sizing: border-box; }
+body { font-family:"Charter","Georgia","Times New Roman",serif; color:var(--ink);
+  max-width:52em; margin:0 auto; padding:2.5em 2em 4em; line-height:1.55;
+  font-size:11.5pt; background:#fff; }
+h1 { font-size:1.8em; margin:0 0 .15em; letter-spacing:-.01em; }
+h2 { font-size:1.2em; margin:2em 0 .6em; padding-bottom:.22em;
+  border-bottom:2px solid var(--accent); color:var(--accent); }
+h3 { font-size:1.03em; margin:1.4em 0 .4em; }
+.sub { color:var(--muted); font-size:.95em; margin-bottom:.3em; }
+.meta { color:var(--muted); font-size:.88em; margin-bottom:1.8em; }
+table { border-collapse:collapse; width:100%; margin:.7em 0 1.1em; font-size:.92em; }
+th,td { border:1px solid var(--rule); padding:.38em .6em; text-align:left; vertical-align:top; }
+th { background:var(--bg-soft); font-weight:600; }
+td.num,th.num { text-align:right; font-variant-numeric:tabular-nums; }
+code,.seq { font-family:"Consolas","SF Mono",Menlo,monospace; }
+.seq { font-size:7.6pt; line-height:1.45; word-break:break-all; background:var(--bg-soft);
+  padding:.55em .7em; border:1px solid var(--rule); border-radius:3px; margin:.4em 0 0; }
+.card { border:1px solid var(--rule); border-radius:5px; padding:1em 1.2em; margin:1em 0; }
+.card h3 { margin-top:0; }
+.card img { width:100%; border:1px solid var(--rule); border-radius:3px; margin:.5em 0; }
+.stats { display:flex; gap:1.6em; flex-wrap:wrap; margin:.3em 0 .6em; }
+.stat { font-size:.92em; }
+.stat b { display:block; font-size:1.26em; color:var(--accent); font-variant-numeric:tabular-nums; }
+.note { background:var(--bg-soft); border-left:3px solid var(--accent);
+  padding:.65em 1em; margin:.9em 0; font-size:.94em; }
+.missing { background:#fff1f1; border:1px dashed #c04040; color:#8a2020;
+  padding:1.2em; text-align:center; font-size:.9em; border-radius:3px; margin:.5em 0; }
+.chromo { color:#b32020; font-weight:700; }
+ul { padding-left:1.25em; } li { margin:.25em 0; }
+figcaption { font-size:.85em; color:var(--muted); margin-top:.3em; }
+@media print { body { padding:0; font-size:10.5pt; max-width:none; }
+  h2 { break-after:avoid; } .card { break-inside:avoid; } table { break-inside:avoid; } }
+@page { margin:1.6cm; }
+</style>
+</head>
+<body>
+<h1>Finetuning ProGen2 on Green Fluorescent Protein</h1>
+<p class="sub">Assignment 1 &mdash; Top-5 Candidate Report</p>
+<p class="meta">CMU 11781 / 02741, Generative AI for Biomedicine &middot; Jonah Zembower &middot; September 30, 2026</p>
+<h2>1. Setup</h2>
+<p>ProGen2-small was finetuned on 47,854 GFP sequences of 237 residues each, then prompted with the first 64 residues of each of the 92 held-out test sequences to generate complete proteins using nucleus (top-<em>p</em>) sampling. Candidates were folded with AlphaFold&nbsp;3 (alphafoldserver.com) and ranked by mean pLDDT subject to pTM&nbsp;&gt;&nbsp;0.8. All 92 generations terminated at exactly 237 residues.</p>
+<p>92 of the 92 designs were folded, limited by the AlphaFold Server's daily job quota; all 92 passed the pTM&nbsp;&gt;&nbsp;0.8 gate, and the 5 highest by mean pLDDT are reported below.</p>
+<h2>2. What pLDDT and pTM measure</h2>
+<p><strong>pLDDT</strong> (predicted Local Distance Difference Test) is a per-atom confidence score on a 0&ndash;100 scale, reported here as the mean over all atoms. It is a <em>local</em> measure: it predicts how well each atom's immediate environment would match an experimental structure. Above 90 is "very high", 70&ndash;90 confident, below 50 usually disordered. Every candidate here averages above 90, which is why the rendered structures are almost uniformly dark blue.</p>
+<p><strong>pTM</strong> (predicted Template Modeling score) estimates the TM-score between the prediction and the true structure, on a 0&ndash;1 scale. Unlike pLDDT it is <em>global</em>: it asks whether the overall fold and the relative placement of distant parts of the chain are right. Above 0.5 means the general fold is probably correct; above 0.8 indicates high confidence in the whole topology. The assignment's pTM&nbsp;&gt;&nbsp;0.8 gate therefore tests that the complete &beta;-barrel is coherent, not just that local geometry looks tidy.</p>
+<p>The <strong>PAE</strong> (Predicted Aligned Error) panel beside each structure gives expected positional error in &aring;ngstr&ouml;ms for every residue pair. Uniformly low (green) PAE means the model is confident about how the whole chain packs together.</p>
+<div class="note"><strong>These metrics measure predicted structural confidence, not function.</strong> A GFP variant can fold into a convincing &beta;-barrel and still be dark if the chromophore environment is disturbed, since chromophore maturation depends on side-chain chemistry AlphaFold does not model. They filter out sequences that clearly fail to fold; they do not demonstrate fluorescence.</div>
+<h2>3. Top-5 candidates</h2>
+<p>Substitutions are relative to the training consensus in <code>&lt;consensus&gt;&lt;position&gt;&lt;design&gt;</code> form. Positions at or below 64 were supplied in the prompt; positions beyond 64 were generated by the model.</p>
+<div class="card">
+  <h3>#1 &mdash; design_022</h3>
+  <div class="stats">
+    <div class="stat">mean pLDDT <b>92.52</b></div>
+    <div class="stat">pTM <b>0.92</b></div>
+    <div class="stat">substitutions <b>3</b></div>
+  </div>
+  <p><code>A36V</code>, <code>T37A</code>, <code>S64A</code> (from the prompt)</p>
+  <figure>
+    <img src="af3_results/images/design_022.png" alt="AlphaFold 3 prediction for design_022">
+    <figcaption>AlphaFold&nbsp;3 prediction coloured by pLDDT, with PAE plot.</figcaption>
+  </figure>
+  <p class="seq">SKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDVAYGKLTLKFICTTGKLPVPWPTLVTTLAYGVQCFSRYPDHMKQHDFFKSAVPEGYVRERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK</p>
+</div>
+<div class="card">
+  <h3>#2 &mdash; design_027</h3>
+  <div class="stats">
+    <div class="stat">mean pLDDT <b>92.35</b></div>
+    <div class="stat">pTM <b>0.92</b></div>
+    <div class="stat">substitutions <b>2</b></div>
+  </div>
+  <p><code>A36T</code>, <code>V54M</code> (from the prompt)</p>
+  <figure>
+    <img src="af3_results/images/design_027.png" alt="AlphaFold 3 prediction for design_027">
+    <figcaption>AlphaFold&nbsp;3 prediction coloured by pLDDT, with PAE plot.</figcaption>
+  </figure>
+  <p class="seq">SKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDTTYGKLTLKFICTTGKLPMPWPTLVTTLSYGVQCFSRYPDHMKQHDFFKSAVPEGYVRERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK</p>
+</div>
+<div class="card">
+  <h3>#3 &mdash; design_018</h3>
+  <div class="stats">
+    <div class="stat">mean pLDDT <b>92.30</b></div>
+    <div class="stat">pTM <b>0.92</b></div>
+    <div class="stat">substitutions <b>2</b></div>
+  </div>
+  <p><code>A36V</code>, <code>Y38H</code> (from the prompt)</p>
+  <figure>
+    <img src="af3_results/images/design_018.png" alt="AlphaFold 3 prediction for design_018">
+    <figcaption>AlphaFold&nbsp;3 prediction coloured by pLDDT, with PAE plot.</figcaption>
+  </figure>
+  <p class="seq">SKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDVTHGKLTLKFICTTGKLPVPWPTLVTTLSYGVQCFSRYPDHMKQHDFFKSAVPEGYVRERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK</p>
+</div>
+<div class="card">
+  <h3>#4 &mdash; design_092</h3>
+  <div class="stats">
+    <div class="stat">mean pLDDT <b>92.28</b></div>
+    <div class="stat">pTM <b>0.92</b></div>
+    <div class="stat">substitutions <b>1</b></div>
+  </div>
+  <p><code>A36V</code> (from the prompt)</p>
+  <figure>
+    <img src="af3_results/images/design_092.png" alt="AlphaFold 3 prediction for design_092">
+    <figcaption>AlphaFold&nbsp;3 prediction coloured by pLDDT, with PAE plot.</figcaption>
+  </figure>
+  <p class="seq">SKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDVTYGKLTLKFICTTGKLPVPWPTLVTTLSYGVQCFSRYPDHMKQHDFFKSAVPEGYVRERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK</p>
+</div>
+<div class="card">
+  <h3>#5 &mdash; design_061</h3>
+  <div class="stats">
+    <div class="stat">mean pLDDT <b>92.26</b></div>
+    <div class="stat">pTM <b>0.92</b></div>
+    <div class="stat">substitutions <b>3</b></div>
+  </div>
+  <p><code>A36D</code>, <code>Y38N</code>, <code>T62A</code> (from the prompt)</p>
+  <figure>
+    <img src="af3_results/images/design_061.png" alt="AlphaFold 3 prediction for design_061">
+    <figcaption>AlphaFold&nbsp;3 prediction coloured by pLDDT, with PAE plot.</figcaption>
+  </figure>
+  <p class="seq">SKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDDTNGKLTLKFICTTGKLPVPWPTLVTALSYGVQCFSRYPDHMKQHDFFKSAVPEGYVRERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK</p>
+</div>
+<h2>4. Divergence analysis</h2>
+<h3>4.1 Consensus sequence</h3>
+<p>Most frequent residue at each position over all 47,854 training sequences. The chromophore-forming triad <span class="chromo">SYG</span> sits at positions 64&ndash;66.</p>
+<p class="seq">SKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTL<span class="chromo">SYG</span>VQCFSRYPDHMKQHDFFKSAVPEGYVRERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK</p>
+<h3>4.2 Substitution table</h3>
+<p>Every position at which a top-5 candidate differs from the consensus. "Conservation" is how often the consensus residue occurs at that position in the training set.</p>
+<table><tr><th>Rank</th><th>Design</th><th>Substitution</th><th class="num">Position</th><th class="num">Conservation</th><th>Source</th></tr>
+<tr><td>1</td><td>design_022</td><td><code>A36V</code></td><td class="num">36</td><td class="num">0.999</td><td>prompt</td></tr>
+<tr><td>1</td><td>design_022</td><td><code>T37A</code></td><td class="num">37</td><td class="num">0.980</td><td>prompt</td></tr>
+<tr><td>1</td><td>design_022</td><td><code>S64A</code></td><td class="num">64</td><td class="num">0.986</td><td>prompt</td></tr>
+<tr><td>2</td><td>design_027</td><td><code>A36T</code></td><td class="num">36</td><td class="num">0.999</td><td>prompt</td></tr>
+<tr><td>2</td><td>design_027</td><td><code>V54M</code></td><td class="num">54</td><td class="num">0.987</td><td>prompt</td></tr>
+<tr><td>3</td><td>design_018</td><td><code>A36V</code></td><td class="num">36</td><td class="num">0.999</td><td>prompt</td></tr>
+<tr><td>3</td><td>design_018</td><td><code>Y38H</code></td><td class="num">38</td><td class="num">0.980</td><td>prompt</td></tr>
+<tr><td>4</td><td>design_092</td><td><code>A36V</code></td><td class="num">36</td><td class="num">0.999</td><td>prompt</td></tr>
+<tr><td>5</td><td>design_061</td><td><code>A36D</code></td><td class="num">36</td><td class="num">0.999</td><td>prompt</td></tr>
+<tr><td>5</td><td>design_061</td><td><code>Y38N</code></td><td class="num">38</td><td class="num">0.980</td><td>prompt</td></tr>
+<tr><td>5</td><td>design_061</td><td><code>T62A</code></td><td class="num">62</td><td class="num">0.986</td><td>prompt</td></tr>
+</table>
+<p>11 substitutions across the top 5: <strong>11 inherited from the prompt</strong> and <strong>0 generated by the model</strong>.</p>
+<h3>4.3 Positional distribution</h3>
+<p>Where the substitutions fall across the 237 residues. The prompt covers positions 1&ndash;64; everything from 65 onward is model output.</p>
+<table><tr><th>Design</th><th class="num">1&ndash;39</th><th class="num">40&ndash;79</th><th class="num">80&ndash;118</th><th class="num">119&ndash;158</th><th class="num">159&ndash;197</th><th class="num">198&ndash;237</th></tr>
+<tr><td>design_022</td><td class="num">2</td><td class="num">1</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td>design_027</td><td class="num">1</td><td class="num">1</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td>design_018</td><td class="num">2</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td>design_092</td><td class="num">1</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td>design_061</td><td class="num">2</td><td class="num">1</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><th>Total</th><th class="num">8</th><th class="num">3</th><th class="num">0</th><th class="num">0</th><th class="num">0</th><th class="num">0</th></tr></table>
+<p>All 11 substitutions fall in the windows 1&ndash;39, 40&ndash;79, entirely within the prompt region.</p>
+<h3>4.4 Decoding strategy</h3>
+<table><tr><th>Strategy</th><td>Nucleus (top-<em>p</em>) sampling</td></tr><tr><th><em>p</em></th><td>0.8 &mdash; sample from the smallest set of residues whose probabilities sum to <em>p</em>, renormalised</td></tr>
+<tr><th>Prompt length</th><td>64 residues</td></tr><tr><th>Max length</th><td>512 tokens</td></tr><tr><th>Batch size</th><td>1</td></tr><tr><th>Seed</th><td>0</td></tr></table>
+<p>Both decoders were run over the full design set to isolate the decoder's contribution:</p>
+<table><tr><th>Decoding</th><th class="num">Substitutions in prompt region (1&ndash;64)</th><th class="num">Substitutions in generated region (65&ndash;237)</th><th class="num">Designs with &ge;1 generated substitution</th></tr>
+<tr><td>Top-<em>p</em>, p = 0.8</td><td class="num">188</td><td class="num"><strong>5</strong></td><td class="num">5 / 92</td></tr>
+<tr><td>Greedy (argmax)</td><td class="num">188</td><td class="num"><strong>0</strong></td><td class="num">0 / 92</td></tr>
+</table>
+<h3>4.5 Interpretation</h3>
+<p>Finetuning succeeded at the task it was set: every candidate folds into a confident GFP &beta;-barrel (pTM 0.92&ndash;0.92, mean pLDDT above 90), terminates at exactly 237 residues, and preserves the <span class="chromo">SYG</span> chromophore triad &mdash; including the tyrosine at position 65, which the model generates itself because the prompt stops at 64. What the model <em>contributed</em> to each design, however, is essentially the consensus sequence: it added nothing of its own to any of them &mdash; all 11 substitutions in the top 5 were handed to it in the prompt. Across all 92 designs the same pattern holds, 188 prompt-region substitutions against 5 from the decoder. This follows from the training data, which is a point-mutation scan of a single protein at 98.4% mean per-position conservation: there is almost no entropy left for a converged autoregressive model to sample, so the next-residue distribution is sharp enough that even nucleus sampling usually finds one residue occupying the entire probability mass. As for what the pLDDT ranking distinguished between &mdash; very little. The top 5 span 0.26 pLDDT points while differing from one another by only 1 to 3 residues out of 237. A gap that small is comparable to AlphaFold's own run-to-run variation, so the ordering is better read as noise than as a quality gradient. The defensible conclusion is that pLDDT worked here as a <em>pass/fail filter</em> confirming these sequences are foldable, which is what the pTM&nbsp;&gt;&nbsp;0.8 gate was for, and not as a way to rank near-identical candidates against each other.</p>
+</body>
+</html>
